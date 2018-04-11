@@ -7,6 +7,10 @@ import numpy as np
 import cv2
 
 def train(training_xml_path, model_file="detector.svm"):
+
+    assert os.path.isfile(training_xml_path)
+    assert not os.path.isfile(model_file)
+
     # Now let's do the training.  The train_simple_object_detector() function has a
     # bunch of options, all of which come with reasonable default values.  The next
     # few lines goes over some of these options.
@@ -21,16 +25,15 @@ def train(training_xml_path, model_file="detector.svm"):
     # empirically by checking how well the trained detector works on a test set of
     # images you haven't trained on.  Don't just leave the value set at 5.  Try a
     # few different C values and see what works best for your data.
-    options.C = 5
+    options.C = 10
     # Tell the code how many CPU cores your computer has for the fastest training.
     options.num_threads = 6
+    options.epsilon = 0.001
     options.be_verbose = True
 
     options.detection_window_size = 4096 #(32, 32)
     # options.upsample_limit = 8
 
-    # training_xml_path = os.path.join(train_folder, "testing_copy.xml") # training
-    # testing_xml_path = os.path.join(train_folder, "testing.xml")
 
     # This function does the actual training.  It will save the final detector to
     # detector.svm.  The input is an XML file that lists the images in the training
@@ -50,15 +53,11 @@ def train(training_xml_path, model_file="detector.svm"):
     print("")  # Print blank line to create gap from previous output
     print("Training accuracy: {}".format(
         dlib.test_simple_object_detector(training_xml_path, model_file)))
-    # However, to get an idea if it really worked without overfitting we need to
-    # run it on images it wasn't trained on.  The next line does this.  Happily, we
-    # see that the object detector works perfectly on the testing images.
-
-    # print("Testing accuracy: {}".format(
-    #     dlib.test_simple_object_detector(testing_xml_path, "detector.svm")))
 
 
-def test(test_folder, model_file="detector.svm"):
+
+def dlib_test(test_folder, model_file="detector.svm"):
+    from utils.preprocess import  generate_all_abs_filenames
     # Now let's use the detector as you would in a normal application.  First we
     # will load it from disk.
     detector = dlib.simple_object_detector(model_file)
@@ -69,9 +68,10 @@ def test(test_folder, model_file="detector.svm"):
 
     # Now let's run the detector over the images in the faces folder and display the
     # results.
-    print("Showing detections on the images in the faces folder...")
+    print("Showing detections on the images in the testing folder...")
     win = dlib.image_window()
-    for f in glob.glob(os.path.join(test_folder, "*")):
+    files = generate_all_abs_filenames(test_folder)
+    for f in files:
         # print("Processing file: {}".format(f))
 
         img = cv2.imread(f)
@@ -98,55 +98,17 @@ def test(test_folder, model_file="detector.svm"):
         # import time
         # time.sleep(0.001)
 
-def test_show_with_cv(test_folder, model_file="detector.svm"):
-    # Now let's use the detector as you would in a normal application.  First we
-    # will load it from disk.
-    detector = dlib.simple_object_detector(model_file)
-    # print(dir(detector))
 
-    # We can look at the HOG filter we learned.  It should look like a face.  Neat!
-    win_det = dlib.image_window()
-    win_det.set_image(detector)
-
-    # Now let's run the detector over the images in the faces folder and display the
-    # results.
-    print("Showing detections on the images in the faces folder...")
-    # cv2.namedWindow("Tracking")
-
-    for f in glob.glob(os.path.join(test_folder, "*")):
-        print("Processing file: {}".format(f))
-
-        img = cv2.imread(f)
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
-        dets = detector(img)
-
-        # print("Number of faces detected: {}".format(len(dets)))
-
-
-        for k, d in enumerate(dets):
-            print("Detection {}: Left: {} Top: {} Right: {} Bottom: {}".format(
-                k, d.left(), d.top(), d.right(), d.bottom()))
-            rect = [[d.left(), d.top()], [d.right(), d.top()], [d.right(), d.bottom()], d.left(), d.bottom()]
-
-            print(rect)
-            cv2.rectangle(img, (d.left(), d.top()), (d.right(), d.bottom()), (0,0,255))
-
-        cv2.imshow('Tracking', img)
-        cv2.waitKey(1)
-
-    cv2.destroyAllWindows()
-
-
-def test_show_with_cv_one(img, model_file="detector.svm"):
-    # Now let's use the detector as you would in a normal application.  First we
-    # will load it from disk.
-    detector = dlib.simple_object_detector(model_file)
-    # print(dir(detector))
+def show_with_cv_one(img):
 
     # We can look at the HOG filter we learned.  It should look like a face.  Neat!
     # win_det = dlib.image_window()
     # win_det.set_image(detector)
+
+    import time
+    start_time = time.clock()
+
+    img = cv2.resize(img, None, fx=0.5, fy=0.5)
 
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
@@ -162,49 +124,110 @@ def test_show_with_cv_one(img, model_file="detector.svm"):
         print(rect)
         img = cv2.rectangle(img, (d.left(), d.top()), (d.right(), d.bottom()), (0,0,255))
 
-    # cv2.imshow('Tracking', img)
-    # cv2.waitKey(1)
+    end_time = time.clock()
+    # compute the tracking fps
+    current_fps = 1.0 / (end_time - start_time)
 
-    # cv2.destroyAllWindows()
+    cv2.putText(img, "FPS:{:5.2f}".format(current_fps), (5, 15),
+                cv2.FONT_HERSHEY_COMPLEX_SMALL, 1, (255, 255, 255))
+
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
     return img
 
 def pipeline_inference(img):
-    global save_model_file
-    img = test_show_with_cv_one(img, model_file=save_model_file)
-    cv2.imshow("A", img)
+    global detector
+    img = show_with_cv_one(img)
+    cv2.imshow("Dlib detection result", img)
     cv2.waitKey(1)
     output = img
     return output
 
+def combine_dlib_xml(files, combine_f='dlib_xml_total.xml'):
+    # merge dlib file together
+    # ./imglab --add /home/miao/dataset/armer_video/v001/dlib_conf/manual_label_armer_half_size.xml /home/miao/dataset/armer_video/v002/dlib_conf/manual_label_armer_half_size.xml
+    # --add will output merge.xml, and the name cannot be easily changed
+
+    # shuffle
+    # ./imglab merged.xml --shuffle
+
+    import shutil
+    import subprocess
+    from subprocess import TimeoutExpired, PIPE
+
+    for f in files:
+        assert os.path.isfile(f)
+
+    tmp_dir = '/tmp/combine_dlib_xml/'
+    if not os.path.isdir(tmp_dir):
+        os.makedirs(tmp_dir)
+    file1 = tmp_dir+'/file1.xml'
+    file2 = tmp_dir+'/file2.xml'
+
+    dlib_imglab_dir = '/home/miao/icra2018_dji/dlib_198/tools/imglab/build/'
+
+    shutil.copyfile(files[0], file1)
+    for f in files[1:]:
+        shutil.copyfile(f, file2)
+
+
+        proc = subprocess.Popen( [dlib_imglab_dir+'/imglab', '--add', file1, file2 ], stdout=PIPE )
+        try:
+            outs, errs = proc.communicate(timeout=15)
+        except TimeoutExpired:
+            proc.kill()
+            outs, errs = proc.communicate()
+
+        shutil.copyfile('merged.xml', file1)
+
+    shutil.copyfile('merged.xml', combine_f)
+
+    proc = subprocess.Popen([dlib_imglab_dir + '/imglab', '--shuffle', combine_f], stdout=PIPE)
+    try:
+        outs, errs = proc.communicate(timeout=15)
+    except TimeoutExpired:
+        proc.kill()
+        outs, errs = proc.communicate()
+
+
 if __name__ == '__main__':
 
-    # In this example we are going to train a face detector based on the small
-    # faces dataset in the examples/faces directory.  This means you need to supply
-    # the path to this faces folder as a command line argument so we will know
-    # where it is.
+    from utils.preprocess import split_the_abs_filename
 
-    #train_folder = '/home/miao/dataset/video_002_half/'
-    #preffix = 'detection_half'
+    """
+    dlib_f = 'manual_label_armer.xml'
+    d_f = lambda x: "/home/rm/icra18_dji/dataset/rm_car/train/{}/dlib_conf/{}".format(x, dlib_f)
+    list_d = ['v001', 'v002', 'v003', 'v004', 'v005']
+    xml_files = [d_f(d) for d in list_d]
+    print(xml_files)
 
-    train_folder = 'H:/projects/icra_robomaster/codes/DataLabel/pipeline_test/'
-    preffix = 'armer_200'
+    combine_f = 'dlib_merge.xml'
 
+    # combine_dlib_xml(files=xml_files, combine_f=combine_f)
+    training_xml_path = combine_f
+    save_model_file = combine_f[:-4] + '.svm'
+    """
 
-    training_xml_path = train_folder + preffix + '.xml'
-    save_model_file = train_folder + preffix + '.svm'
+    from conf.conf_loader import dlib_dir_conf, video_file_conf
+    training_xml_path = dlib_dir_conf+'/dlib_armer_600_half_size.xml'
+    save_model_file = training_xml_path[:-4] + '.svm'
 
     # train(training_xml_path, save_model_file)
 
+    # dlib_test(frame_dir_conf, model_file=save_model_file)
 
-    # base_dir_test = 'H:/projects/icra_robomaster/codes/DataLabel/video_002/'
-    base_dir_test = '/home/miao/dataset/video_002/'
-    frame_dir = base_dir_test + 'frames'
 
-    # test(frame_dir, model_file=save_model_file)
-    # test_show_with_cv(frame_dir, model_file=save_model_file)
+    test_v_f = '/home/rm/icra18_dji/dataset/rm_car/test/t001.mp4'
+    # test_v_f = video_file_conf
+
+    video_output = test_v_f[: -4] + '_dlib_detection.mp4'
+
+    
+    # Now let's use the detector as you would in a normal application.  First we
+    # will load it from disk.
+    detector = dlib.simple_object_detector(save_model_file)
 
     from moviepy.editor import VideoFileClip
-    video_output = 'frame_002_with_{}.mp4'.format(preffix)
-    clip1 = VideoFileClip(train_folder+"/002.mp4")
+    clip1 = VideoFileClip(test_v_f)
     clip = clip1.fl_image(pipeline_inference)
     clip.write_videofile(video_output, audio=False)
